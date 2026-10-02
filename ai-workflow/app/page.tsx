@@ -1,69 +1,146 @@
-import Image from "next/image";
+'use client';
+import { useCallback, useRef, useState } from 'react';
+import ReactFlow, {
+  addEdge, Background, Controls, MiniMap,
+  useNodesState, useEdgesState, Connection,
+  ReactFlowProvider, ReactFlowInstance,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+import WorkflowNode from '@/components/WorkflowNode';
+import WorkflowEdge from '@/components/WorkflowEdge';
+import { initialNodes, initialEdges } from '@/lib/initialData';
+
+const nodeTypes = { workflowNode: WorkflowNode };
+const edgeTypes = { workflowEdge: WorkflowEdge };
+let nodeIdCounter = 4;
+
+function FlowCanvas() {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
+  const [logs, setLogs] = useState<string[]>([]);
+
+  const updatePrompt = useCallback((nodeId: string, prompt: string) => {
+    setNodes(nds => nds.map(n =>
+      n.id === nodeId ? { ...n, data: { ...n.data, prompt } } : n
+    ));
+  }, [setNodes]);
+
+  const nodesWithHandlers = nodes.map(node => ({
+    ...node,
+    data: {
+      ...node.data,
+      onPromptChange: (prompt: string) => updatePrompt(node.id, prompt),
+    },
+  }));
+
+  const onConnect = useCallback((connection: Connection) => {
+    const label = connection.sourceHandle === 'yes' ? 'YES' : 'NO';
+    setEdges(eds => addEdge(
+      { ...connection, type: 'workflowEdge', data: { label } },
+      eds
+    ));
+  }, [setEdges]);
+
+  const addNode = useCallback(() => {
+    const id = String(nodeIdCounter++);
+    const newNode = {
+      id,
+      type: 'workflowNode',
+      position: { x: Math.random() * 300 + 100, y: Math.random() * 200 + 100 },
+      data: { label: 'Node', prompt: '', onPromptChange: () => {} },
+    };
+    setNodes(nds => [...nds, newNode]);
+  }, [setNodes]);
+
+  const runWorkflow = useCallback(async () => {
+    if (!nodes.length) return;
+    setIsRunning(true);
+    setLogs(['Starting workflow...']);
+
+    setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, status: 'idle' } })));
+
+    try {
+      const res = await fetch('/api/workflow/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodes, edges }),
+      });
+      const result = await res.json();
+
+      if (result.executionPath) {
+        for (const step of result.executionPath) {
+          setNodes(nds => nds.map(n =>
+            n.id === step.nodeId
+              ? { ...n, data: { ...n.data, status: step.result.toLowerCase() } }
+              : n
+          ));
+          setLogs(prev => [...prev, `Node "${step.prompt}" → ${step.result}`]);
+          await new Promise(r => setTimeout(r, 600));
+        }
+      }
+      setLogs(prev => [...prev, '✓ Workflow complete']);
+    } catch (err) {
+      setLogs(prev => [...prev, '✗ Workflow error']);
+    } finally {
+      setIsRunning(false);
+    }
+  }, [nodes, edges, setNodes]);
+
+  return (
+    <div className="flex h-screen flex-col">
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 px-4 py-2 bg-gray-900 text-white">
+        <span className="font-bold text-lg">AI Workflow</span>
+        <button
+          onClick={addNode}
+          className="ml-auto bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
+        >+ Add Node</button>
+        <button
+          onClick={runWorkflow}
+          disabled={isRunning}
+          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1 rounded text-sm font-bold"
+        >{isRunning ? 'Running...' : '▶ Run Workflow'}</button>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Canvas */}
+        <div className="flex-1">
+          <ReactFlow
+            nodes={nodesWithHandlers}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onInit={setRfInstance}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            fitView
+          >
+            <Background />
+            <Controls />
+            <MiniMap />
+          </ReactFlow>
+        </div>
+
+        {/* Logs panel */}
+        <div className="w-64 bg-gray-950 text-green-400 font-mono text-xs p-3 overflow-y-auto">
+          <div className="font-bold text-gray-400 mb-2 uppercase tracking-wide">Execution Log</div>
+          {logs.length === 0
+            ? <div className="text-gray-600">No runs yet.</div>
+            : logs.map((log, i) => <div key={i} className="mb-1">{log}</div>)
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <ReactFlowProvider>
+      <FlowCanvas />
+    </ReactFlowProvider>
   );
 }
