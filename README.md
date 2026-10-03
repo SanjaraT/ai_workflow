@@ -1,7 +1,6 @@
 # AI Workflow System
 
 A visual AI workflow builder where each node represents a YES/NO decision step powered by an LLM. Build decision trees visually, run them with one click, and watch the execution path animate in real time.
-
 Built as part of the FlyRankAI internship.
 
 ## What it does
