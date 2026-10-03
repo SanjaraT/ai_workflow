@@ -58,6 +58,12 @@ function FlowCanvas() {
   if (!nodes.length) return;
   setIsRunning(true);
   setLogs(['Starting workflow...']);
+  const emptyNodes = nodes.filter(n => !n.data.prompt?.trim());
+  if (emptyNodes.length > 0) {
+    setLogs(['✗ All nodes must have a prompt before running']);
+    setIsRunning(false);
+    return;
+  }
 
   // reset all nodes to idle first
   setNodes(nds => nds.map(n => ({
@@ -108,20 +114,69 @@ function FlowCanvas() {
   }
 }, [nodes, edges, setNodes, updatePrompt]);
 
+const saveWorkflow = useCallback(() => {
+  const workflow = { nodes: nodes.map(n => ({ ...n, data: { ...n.data, onPromptChange: undefined } })), edges };
+  localStorage.setItem('saved-workflow', JSON.stringify(workflow));
+  setLogs(prev => [...prev, '💾 Workflow saved']);
+}, [nodes, edges]);
+
+const loadWorkflow = useCallback(() => {
+  const saved = localStorage.getItem('saved-workflow');
+  if (!saved) { setLogs(prev => [...prev, '⚠ No saved workflow found']); return; }
+  const { nodes: savedNodes, edges: savedEdges } = JSON.parse(saved);
+  setNodes(savedNodes.map((n: any) => ({
+    ...n,
+    data: { ...n.data, onPromptChange: (prompt: string) => updatePrompt(n.id, prompt) }
+  })));
+  setEdges(savedEdges);
+  setLogs(prev => [...prev, '📂 Workflow loaded']);
+}, [setNodes, setEdges, updatePrompt]);
+
+const exportJSON = useCallback(() => {
+  const workflow = {
+    nodes: nodes.map(n => ({ id: n.id, prompt: n.data.prompt, label: n.data.label, position: n.position })),
+    edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target, path: e.sourceHandle })),
+  };
+  const blob = new Blob([JSON.stringify(workflow, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'workflow.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  setLogs(prev => [...prev, '📤 Workflow exported as JSON']);
+}, [nodes, edges]);
+
   return (
     <div className="flex h-screen flex-col">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-4 py-2 bg-gray-900 text-white">
+      <div className="flex items-center gap-3 px-4 py-2 bg-gray-900 text-white flex-wrap">
         <span className="font-bold text-lg">AI Workflow</span>
         <button
           onClick={addNode}
           className="ml-auto bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
         >+ Add Node</button>
         <button
+          onClick={saveWorkflow}
+          className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
+        >💾 Save</button>
+        <button
+          onClick={loadWorkflow}
+          className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
+        >📂 Load</button>
+        <button
+          onClick={exportJSON}
+          className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
+        >📤 Export JSON</button>
+        <button
+          onClick={() => { setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, status: 'idle', onPromptChange: (prompt: string) => updatePrompt(n.id, prompt) } }))); setLogs([]); }}
+          className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
+        >↺ Reset</button>
+        <button
           onClick={runWorkflow}
           disabled={isRunning}
           className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1 rounded text-sm font-bold"
-        >{isRunning ? 'Running...' : '▶ Run Workflow'}</button>
+        >{isRunning ? 'Running...' : '▶ Run'}</button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
