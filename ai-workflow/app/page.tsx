@@ -55,38 +55,58 @@ function FlowCanvas() {
   }, [setNodes]);
 
   const runWorkflow = useCallback(async () => {
-    if (!nodes.length) return;
-    setIsRunning(true);
-    setLogs(['Starting workflow...']);
+  if (!nodes.length) return;
+  setIsRunning(true);
+  setLogs(['Starting workflow...']);
 
-    setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, status: 'idle' } })));
+  // reset all nodes to idle first
+  setNodes(nds => nds.map(n => ({
+    ...n,
+    data: { ...n.data, status: 'idle', onPromptChange: (prompt: string) => updatePrompt(n.id, prompt) }
+  })));
 
-    try {
-      const res = await fetch('/api/workflow/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nodes, edges }),
-      });
-      const result = await res.json();
+  try {
+    const res = await fetch('/api/workflow/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodes, edges }),
+    });
 
-      if (result.executionPath) {
-        for (const step of result.executionPath) {
-          setNodes(nds => nds.map(n =>
-            n.id === step.nodeId
-              ? { ...n, data: { ...n.data, status: step.result.toLowerCase() } }
-              : n
-          ));
-          setLogs(prev => [...prev, `Node "${step.prompt}" → ${step.result}`]);
-          await new Promise(r => setTimeout(r, 600));
-        }
+    const result = await res.json();
+
+    if (result.error) {
+      setLogs(['✗ Error: ' + result.error]);
+      setIsRunning(false);
+      return;
+    }
+
+    if (result.executionPath && result.executionPath.length > 0) {
+      for (const step of result.executionPath) {
+        const status = step.result === 'YES' ? 'yes' : 'no';
+
+        // use functional update so we always have fresh state
+        setNodes(nds => nds.map(n =>
+          n.id === step.nodeId
+            ? { ...n, data: { ...n.data, status, onPromptChange: (prompt: string) => updatePrompt(n.id, prompt) } }
+            : n
+        ));
+
+        setLogs(prev => [...prev, `"${step.prompt}" → ${step.result}`]);
+
+        // pause between each node so you can see the animation
+        await new Promise(r => setTimeout(r, 800));
       }
       setLogs(prev => [...prev, '✓ Workflow complete']);
-    } catch (err) {
-      setLogs(prev => [...prev, '✗ Workflow error']);
-    } finally {
-      setIsRunning(false);
+    } else {
+      setLogs(['✗ No execution path returned']);
     }
-  }, [nodes, edges, setNodes]);
+
+  } catch (err: any) {
+    setLogs(prev => [...prev, '✗ Error: ' + err.message]);
+  } finally {
+    setIsRunning(false);
+  }
+}, [nodes, edges, setNodes, updatePrompt]);
 
   return (
     <div className="flex h-screen flex-col">
